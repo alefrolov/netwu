@@ -3,9 +3,11 @@ import sys
 import socket
 import argparse
 import logging
+import logging.handlers
+
+log=None
 
 def run(sock, pars, address):
-    log = logging.getLogger("netwu.Run")
     if pars.server:
         sock.bind(address)
         log.info('Server is listening now: '+address[0]+':'+str(address[1]))
@@ -23,7 +25,7 @@ def run(sock, pars, address):
                     log.info('Message received: ' + msg)
                     #print('Message received:', msg)
                     cl.send(msg.upper().encode())
-                    log.info('Message sent to '+cl.getsockname()[0]+':'+str(cl.getsockname()[1])+': '+msg.upper())
+                    log.info('Message sent to ' + cl.getsockname()[0] + ':'+str(cl.getsockname()[1])+': '+msg.upper())
                     cl.close()
                 else:
                     msg, addr = sock.recvfrom(2048)
@@ -50,15 +52,20 @@ def run(sock, pars, address):
     else:
         if not pars.udp or pars.connect:
             sock.connect(address)
+            log.info('Client connected to server '+address[0]+':'+str(address[1]))
             print('Connected to server:', address)
         msg = input('Enter sentense: ')
         if pars.connect:
             sock.send(msg.encode())
+            log.info('Client sent message to server '+address[0]+':'+str(address[1])+' :'+msg)
         else:
             sock.sendto(msg.encode(), address)
+            log.info('Client sent message to server '+address[0]+':'+str(address[1])+' :'+msg)
         resp = sock.recv(2048)
+        log.info('Receive message by client: '+resp.decode())
         print('Received message: ', resp.decode())
         sock.close()
+        log.info('Client finished')
 
 
 def parseRawMessage(msg):
@@ -103,7 +110,6 @@ def parseRawMessage(msg):
 
 
 def rawServer(address):
-    log = logging.getLogger("netwu.RawServer")
     try:
         rawSock = socket.socket(
             socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
@@ -132,8 +138,10 @@ def rawClient(address):
         rawSock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 0)
         message = input("Enter message:")
         rawSock.sendto(message.encode(), address)
+        log.info('Raw client sent message to: '+address[0])
         msg = rawSock.recvfrom(4096)
         payload = parseRawMessage(msg)
+        log.info('Raw client received message: '+payload)
         print("Responce from server:\n"+payload)
     finally:
         rawSock.close()
@@ -148,25 +156,30 @@ def main():
     parser.add_argument("-r", "--raw", action="store_true")
     parser.add_argument("-f", "--filename", dest="filename",type=str)
     parser.add_argument("-o","--stdout", action="store_true")
+    parser.add_argument("-j", "--journal", action="store_true")
     parser.add_argument("host", type=str)
     parser.add_argument("port", type=int)
 
     args = parser.parse_args()
     mainSocket = None
-
-
-    logger = logging.getLogger("netwu")
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    global log
+    log = logging.getLogger("netwu")
+    log.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(levelname)s - %(message)s')
 
     if not (args.filename is None):
         filehandler=logging.FileHandler(args.filename)
         filehandler.setFormatter(formatter)
-        logger.addHandler(filehandler)
-    if args.stdout:
+        log.addHandler(filehandler)
+    if args.journal:
+        journalhandler=logging.handlers.SysLogHandler('/dev/log')
+        journalhandler.setFormatter(formatter)
+        log.addHandler(journalhandler)
+        print("Journal added")
+    if args.stdout or ((args.filename is None) and  not args.journal):
        stdouthandler = logging.StreamHandler(sys.stdout)
        stdouthandler.setFormatter(formatter)
-       logger.addHandler(stdouthandler)
+       log.addHandler(stdouthandler)
     if args.raw:
         try:
             if args.server:
